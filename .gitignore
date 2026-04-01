@@ -205,3 +205,20 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project data artifacts
+data/raw/*
+data/processed/*
+!data/.gitkeep
+!data/README.md
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Project artifacts
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+
+# Local helper files
+.codex

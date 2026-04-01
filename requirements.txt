@@ -1,0 +1,11 @@
+torch
+torchvision
+monai
+nibabel
+numpy
+pillow
+imageio
+tqdm
+transformers
+timm
+matplotlib

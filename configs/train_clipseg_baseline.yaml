@@ -1,0 +1,7 @@
+train_manifest: data/processed/flare_2d/train_labeled/manifest.jsonl
+val_manifest: data/processed/flare_2d/val_labeled/manifest.jsonl
+checkpoint_dir: checkpoints/clipseg_baseline
+batch_size: 64
+num_epochs: 25
+freeze_vision_layers: 4
+negative_ratio: 0.10

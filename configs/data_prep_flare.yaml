@@ -1,0 +1,10 @@
+img_path: data/raw/flare/images
+lbl_path: data/raw/flare/labels
+out_root: data/processed/flare_2d
+seed: 42
+clip_min: -125
+clip_max: 275
+target_size: [352, 352]
+train_count: 30
+val_count: 10
+test_count: 10
