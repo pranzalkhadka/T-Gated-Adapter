@@ -11,6 +11,7 @@ from pathlib import Path
 import imageio
 import nibabel as nib
 import numpy as np
+import yaml
 from PIL import Image
 from tqdm import tqdm
 
@@ -194,38 +195,54 @@ def process_set(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare FLARE triplanar 2D dataset")
-    parser.add_argument("--img-path", type=Path, default=Path("data/raw/flare/images"))
-    parser.add_argument("--lbl-path", type=Path, default=Path("data/raw/flare/labels"))
-    parser.add_argument("--out-root", type=Path, default=Path("data/processed/flare_2d"))
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--clip-min", type=int, default=-125)
-    parser.add_argument("--clip-max", type=int, default=275)
-    parser.add_argument("--target-size", type=int, nargs=2, default=[352, 352])
-    parser.add_argument("--train-count", type=int, default=30)
-    parser.add_argument("--val-count", type=int, default=10)
-    parser.add_argument("--test-count", type=int, default=10)
+    parser.add_argument("--config", type=str, default="configs/data_prep_flare.yaml", help="YAML config path")
+    parser.add_argument("--img-path", type=Path, default=None)
+    parser.add_argument("--lbl-path", type=Path, default=None)
+    parser.add_argument("--out-root", type=Path, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    random.seed(args.seed)
+    with open(args.config, "r") as f:
+        cfg = yaml.safe_load(f) or {}
+    cfg.setdefault("img_path", "data/raw/flare/images")
+    cfg.setdefault("lbl_path", "data/raw/flare/labels")
+    cfg.setdefault("out_root", "data/processed/flare_2d")
+    cfg.setdefault("seed", 42)
+    cfg.setdefault("clip_min", -125)
+    cfg.setdefault("clip_max", 275)
+    cfg.setdefault("target_size", [352, 352])
+    cfg.setdefault("train_count", 30)
+    cfg.setdefault("val_count", 10)
+    cfg.setdefault("test_count", 10)
+    if args.img_path is not None:
+        cfg["img_path"] = str(args.img_path)
+    if args.lbl_path is not None:
+        cfg["lbl_path"] = str(args.lbl_path)
+    if args.out_root is not None:
+        cfg["out_root"] = str(args.out_root)
 
-    volumes = sorted(list(args.img_path.glob("*.nii*")))
+    img_path = Path(cfg["img_path"])
+    lbl_path = Path(cfg["lbl_path"])
+    out_root = Path(cfg["out_root"])
+    random.seed(cfg["seed"])
+
+    volumes = sorted(list(img_path.glob("*.nii*")))
     random.shuffle(volumes)
 
-    n_train = args.train_count
-    n_val = args.val_count
-    n_test = args.test_count
+    n_train = cfg["train_count"]
+    n_val = cfg["val_count"]
+    n_test = cfg["test_count"]
 
-    clip_window = (args.clip_min, args.clip_max)
-    target_size = tuple(args.target_size)
+    clip_window = (cfg["clip_min"], cfg["clip_max"])
+    target_size = tuple(cfg["target_size"])
 
     process_set(
         volumes[:n_train],
         "train_labeled",
-        args.out_root,
-        args.lbl_path,
+        out_root,
+        lbl_path,
         clip_window,
         target_size,
         is_labeled=True,
@@ -233,8 +250,8 @@ def main() -> None:
     process_set(
         volumes[n_train : n_train + n_val],
         "val_labeled",
-        args.out_root,
-        args.lbl_path,
+        out_root,
+        lbl_path,
         clip_window,
         target_size,
         is_labeled=True,
@@ -242,8 +259,8 @@ def main() -> None:
     process_set(
         volumes[n_train + n_val : n_train + n_val + n_test],
         "test_labeled",
-        args.out_root,
-        args.lbl_path,
+        out_root,
+        lbl_path,
         clip_window,
         target_size,
         is_labeled=True,

@@ -9,12 +9,14 @@ This script intentionally keeps the paper training logic close to notebook behav
 # %%
 
 # %%
+import argparse
 import os
 import random
 import json
 import numpy as np
 import torch
 import torch.nn as nn
+import yaml
 from pathlib import Path
 from tqdm import tqdm
 from collections import defaultdict
@@ -34,20 +36,57 @@ from monai.transforms import AsDiscrete
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 
 # %%
-IMG_PATH    = Path("data/raw/flare/images")
-LBL_PATH    = Path("data/raw/flare/labels")
-CKPT_DIR    = Path("checkpoints/dyunet")
-CKPT_DIR.mkdir(exist_ok=True)
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train DynUNet on FLARE volumes")
+    parser.add_argument("--config", type=str, default="configs/train_dyunet.yaml", help="YAML config path")
+    parser.add_argument("--img-path", type=str, default=None)
+    parser.add_argument("--lbl-path", type=str, default=None)
+    parser.add_argument("--checkpoint-dir", type=str, default=None)
+    return parser.parse_args()
 
-NUM_CLASSES  = 14        # 0=background + 13 organs
-PATCH_SIZE   = (96, 96, 96)
-BATCH_SIZE   = 2         # 3D patches — keep small
-NUM_EPOCHS   = 300       # DynUNet converges fast on small data
-VAL_INTERVAL = 5         # validate every 5 epochs
-NUM_WORKERS  = 2
 
-# Same HU window as your CLIPSeg preprocessing
-HU_MIN, HU_MAX = -125, 275
+def load_config(args):
+    with open(args.config, "r") as f:
+        cfg = yaml.safe_load(f) or {}
+    cfg.setdefault("img_path", "data/raw/flare/images")
+    cfg.setdefault("lbl_path", "data/raw/flare/labels")
+    cfg.setdefault("checkpoint_dir", "checkpoints/dyunet")
+    cfg.setdefault("num_classes", 14)
+    cfg.setdefault("patch_size", [96, 96, 96])
+    cfg.setdefault("batch_size", 2)
+    cfg.setdefault("num_epochs", 300)
+    cfg.setdefault("val_interval", 5)
+    cfg.setdefault("num_workers", 2)
+    cfg.setdefault("hu_min", -125)
+    cfg.setdefault("hu_max", 275)
+    cfg.setdefault("seed", 42)
+    cfg.setdefault("train_count", 30)
+    cfg.setdefault("val_count", 10)
+    cfg.setdefault("test_count", 10)
+    if args.img_path is not None:
+        cfg["img_path"] = args.img_path
+    if args.lbl_path is not None:
+        cfg["lbl_path"] = args.lbl_path
+    if args.checkpoint_dir is not None:
+        cfg["checkpoint_dir"] = args.checkpoint_dir
+    return cfg
+
+
+_args = parse_args()
+_cfg = load_config(_args)
+
+IMG_PATH = Path(_cfg["img_path"])
+LBL_PATH = Path(_cfg["lbl_path"])
+CKPT_DIR = Path(_cfg["checkpoint_dir"])
+CKPT_DIR.mkdir(parents=True, exist_ok=True)
+
+NUM_CLASSES = _cfg["num_classes"]
+PATCH_SIZE = tuple(_cfg["patch_size"])
+BATCH_SIZE = _cfg["batch_size"]
+NUM_EPOCHS = _cfg["num_epochs"]
+VAL_INTERVAL = _cfg["val_interval"]
+NUM_WORKERS = _cfg["num_workers"]
+HU_MIN, HU_MAX = _cfg["hu_min"], _cfg["hu_max"]
 
 # Same organ map as CLIPSeg — FLARE label indices
 LABEL_MAP = {
@@ -62,13 +101,16 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # %%
-random.seed(42)
+random.seed(_cfg["seed"])
 labeled_vols = sorted(list(IMG_PATH.glob("*.nii*")))
 random.shuffle(labeled_vols)
 
-train_vols = labeled_vols[:30]
-val_vols   = labeled_vols[30:40]
-test_vols  = labeled_vols[40:50]
+train_end = _cfg["train_count"]
+val_end = train_end + _cfg["val_count"]
+test_end = val_end + _cfg["test_count"]
+train_vols = labeled_vols[:train_end]
+val_vols = labeled_vols[train_end:val_end]
+test_vols = labeled_vols[val_end:test_end]
 
 print(f"Train: {len(train_vols)} | Val: {len(val_vols)} | Test: {len(test_vols)}")
 

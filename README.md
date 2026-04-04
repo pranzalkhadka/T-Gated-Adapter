@@ -83,53 +83,6 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Data Preparation
-
-1. Download the FLARE data from official source.
-2. Place files under:
-- `data/raw/flare/images`
-- `data/raw/flare/labels`
-
-3. Prepare 2D slices for fine-tuning:
-
-```bash
-python scripts/prepare_flare_data.py \
-  --img-path data/raw/flare/images \
-  --lbl-path data/raw/flare/labels \
-  --out-root data/processed/flare_2d
-```
-
-## Training
-
-```bash
-# 3D baseline
-python scripts/train_dyunet.py
-
-# 2D CLIPSeg baseline
-python scripts/train_baseline.py
-
-# Temporal adapter
-python scripts/train_temporal.py
-```
-
-<!-- ## Inference / Testing
-
-```bash
-python scripts/test_temporal.py
-``` -->
-
-
-<!-- ## Citation
-
-If you find this work useful for your research, please cite:
-
-```bibtex
-@inproceedings{tgated_adapter_2026,
-  title     = {T-Gated Adapter: A Lightweight Temporal Adapter for Vision-Language Medical Segmentation},
-  booktitle = {CVPR Workshop},
-  year      = {2026}
-}
-``` -->
 
 ## Acknowledgements
 
@@ -140,4 +93,3 @@ We are grateful to the authors of the following repositories and datasets for ma
 3. [Fast and Low-resource semi-supervised Abdominal Organ Segmentation in CT ](https://flare22.grand-challenge.org/) 
 4. [Multi-Atlas Labeling Beyond the Cranial Vault - Workshop and Challenge](https://www.synapse.org/#!Synapse:syn3193805/wiki/217789)
 5. [Multi-Modality Abdominal Multi-Organ Segmentation Challenge 2022](https://amos22.grand-challenge.org/)
-

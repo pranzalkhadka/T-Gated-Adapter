@@ -1,11 +1,13 @@
 """Train baseline CLIPSeg using modular src implementation."""
 
+import argparse
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 import torch
 import torch.nn as nn
+import yaml
 from monai.losses import DiceLoss
 from monai.metrics import DiceMetric
 from torch.optim import AdamW
@@ -19,11 +21,32 @@ from tgated.constants import NEGATIVE_RATIO
 from tgated.data import CLIPSegBaselineDataset, make_baseline_collate_fn, make_weighted_sampler
 from tgated.models import CLIPSegBaseline
 
-TRAIN_LBL_MANIFEST = "data/processed/flare_2d/train_labeled/manifest.jsonl"
-VAL_LBL_MANIFEST = "data/processed/flare_2d/val_labeled/manifest.jsonl"
-BATCH_SIZE = 64
-FREEZE_VISION_LAYERS = 4
-NUM_EPOCHS = 25
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train CLIPSeg baseline")
+    parser.add_argument("--config", type=str, default="configs/train_clipseg_baseline.yaml", help="YAML config path")
+    parser.add_argument("--data-root", type=str, default=None, help="Path to prepared 2D data root containing train_labeled/val_labeled")
+    parser.add_argument("--checkpoint-dir", type=str, default=None)
+    return parser.parse_args()
+
+
+def load_config(args):
+    with open(args.config, "r") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    cfg.setdefault("batch_size", 64)
+    cfg.setdefault("num_epochs", 25)
+    cfg.setdefault("freeze_vision_layers", 4)
+    cfg.setdefault("num_workers", 2)
+    cfg.setdefault("negative_ratio", NEGATIVE_RATIO)
+    cfg.setdefault("checkpoint_dir", "checkpoints/clipseg_baseline")
+
+    if args.data_root is not None:
+        data_root = Path(args.data_root)
+        cfg["train_manifest"] = str(data_root / "train_labeled" / "manifest.jsonl")
+        cfg["val_manifest"] = str(data_root / "val_labeled" / "manifest.jsonl")
+    if args.checkpoint_dir is not None:
+        cfg["checkpoint_dir"] = args.checkpoint_dir
+    return cfg
 
 
 def save_checkpoint(
@@ -37,8 +60,9 @@ def save_checkpoint(
     val_dice_values,
     per_organ_val_dice,
     filename,
+    checkpoint_dir,
 ):
-    ckpt_dir = Path("checkpoints/clipseg_baseline")
+    ckpt_dir = Path(checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = {
         "epoch": epoch,
@@ -57,30 +81,33 @@ def save_checkpoint(
 
 
 def main():
+    args = parse_args()
+    cfg = load_config(args)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     processor = CLIPSegProcessor.from_pretrained("CIDAS/clipseg-rd64-refined", use_fast=True)
 
-    train_ds = CLIPSegBaselineDataset(TRAIN_LBL_MANIFEST, strict_mask=True, neg_ratio=NEGATIVE_RATIO)
-    val_ds = CLIPSegBaselineDataset(VAL_LBL_MANIFEST, strict_mask=False, neg_ratio=0.0)
+    train_ds = CLIPSegBaselineDataset(cfg["train_manifest"], strict_mask=True, neg_ratio=cfg["negative_ratio"])
+    val_ds = CLIPSegBaselineDataset(cfg["val_manifest"], strict_mask=False, neg_ratio=0.0)
 
     train_loader = DataLoader(
         train_ds,
-        batch_size=BATCH_SIZE,
+        batch_size=cfg["batch_size"],
         sampler=make_weighted_sampler(train_ds),
-        num_workers=2,
+        num_workers=cfg["num_workers"],
         pin_memory=True,
         collate_fn=make_baseline_collate_fn(processor),
     )
     val_loader = DataLoader(
         val_ds,
-        batch_size=BATCH_SIZE,
+        batch_size=cfg["batch_size"],
         shuffle=False,
-        num_workers=2,
+        num_workers=cfg["num_workers"],
         pin_memory=True,
         collate_fn=make_baseline_collate_fn(processor),
     )
 
-    model = CLIPSegBaseline(freeze_vision_layers=FREEZE_VISION_LAYERS).to(device)
+    model = CLIPSegBaseline(freeze_vision_layers=cfg["freeze_vision_layers"]).to(device)
     optimizer = AdamW(
         [
             {"params": model.base_model.clip.vision_model.parameters(), "lr": 1e-6},
@@ -102,12 +129,13 @@ def main():
     per_organ_val_dice = []
     best_val_dice = 0.0
 
-    for epoch in range(NUM_EPOCHS):
+    checkpoint_dir = cfg["checkpoint_dir"]
+    for epoch in range(cfg["num_epochs"]):
         model.train()
         train_dice_metric.reset()
         total_train_loss = 0.0
 
-        pbar = tqdm(train_loader, desc=f"Train Epoch {epoch+1}/{NUM_EPOCHS}")
+        pbar = tqdm(train_loader, desc=f"Train Epoch {epoch+1}/{cfg['num_epochs']}")
         for i, batch in enumerate(pbar):
             images = batch["pixel_values"].to(device)
             input_ids = batch["input_ids"].to(device)
@@ -148,7 +176,7 @@ def main():
 
         with torch.no_grad():
             with torch.amp.autocast("cuda"):
-                for batch in tqdm(val_loader, desc=f"Val Epoch {epoch+1}/{NUM_EPOCHS}"):
+                for batch in tqdm(val_loader, desc=f"Val Epoch {epoch+1}/{cfg['num_epochs']}"):
                     images = batch["pixel_values"].to(device)
                     input_ids = batch["input_ids"].to(device)
                     attention_mask = batch["attention_mask"].to(device)
@@ -192,6 +220,7 @@ def main():
                 val_dice_values,
                 per_organ_val_dice,
                 "clipseg_baseline_BEST.pth",
+                checkpoint_dir,
             )
 
         save_checkpoint(
@@ -205,6 +234,7 @@ def main():
             val_dice_values,
             per_organ_val_dice,
             f"clipseg_baseline_epoch_{epoch+1}.pth",
+            checkpoint_dir,
         )
 
     print(f"Training complete. Best val dice: {best_val_dice:.4f}")

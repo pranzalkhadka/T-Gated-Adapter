@@ -1,6 +1,6 @@
 torch
 torchvision
-monai
+monai==1.5.2
 nibabel
 numpy
 pillow
@@ -9,3 +9,4 @@ tqdm
 transformers
 timm
 matplotlib
+pyyaml

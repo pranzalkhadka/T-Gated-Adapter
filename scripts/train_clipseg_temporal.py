@@ -1,5 +1,6 @@
 """Train temporal CLIPSeg adapter using modular src implementation."""
 
+import argparse
 import gc
 import sys
 from collections import defaultdict
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import yaml
 from monai.losses import DiceLoss
 from monai.metrics import DiceMetric
 from torch.utils.data import DataLoader
@@ -19,12 +21,33 @@ from tgated.constants import NEGATIVE_RATIO
 from tgated.data import TemporalDataset, make_weighted_sampler
 from tgated.models import CLIPSegTemporalAdapter, gate_sparsity_loss, get_raw_model
 
-TRAIN_LBL_MANIFEST = "data/processed/flare_2d/train_labeled/manifest.jsonl"
-VAL_LBL_MANIFEST = "data/processed/flare_2d/val_labeled/manifest.jsonl"
-BATCH_SIZE = 6
-CONTEXT_SIZE = 5
-NUM_EPOCHS = 5
-LAMBDA_GATE = 0.001
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train temporal CLIPSeg adapter")
+    parser.add_argument("--config", type=str, default="configs/train_clipseg_temporal.yaml", help="YAML config path")
+    parser.add_argument("--data-root", type=str, default=None, help="Path to prepared 2D data root containing train_labeled/val_labeled")
+    parser.add_argument("--checkpoint-dir", type=str, default=None)
+    return parser.parse_args()
+
+
+def load_config(args):
+    with open(args.config, "r") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    cfg.setdefault("batch_size", 6)
+    cfg.setdefault("context_size", 5)
+    cfg.setdefault("num_epochs", 5)
+    cfg.setdefault("lambda_gate", 0.001)
+    cfg.setdefault("num_workers", 4)
+    cfg.setdefault("negative_ratio", NEGATIVE_RATIO)
+    cfg.setdefault("checkpoint_dir", "checkpoints/clipseg_temporal")
+
+    if args.data_root is not None:
+        data_root = Path(args.data_root)
+        cfg["train_manifest"] = str(data_root / "train_labeled" / "manifest.jsonl")
+        cfg["val_manifest"] = str(data_root / "val_labeled" / "manifest.jsonl")
+    if args.checkpoint_dir is not None:
+        cfg["checkpoint_dir"] = args.checkpoint_dir
+    return cfg
 
 
 def save_checkpoint(
@@ -37,8 +60,9 @@ def save_checkpoint(
     val_dice_values,
     per_organ_val_dice,
     filename,
+    checkpoint_dir,
 ):
-    ckpt_dir = Path("checkpoints/clipseg_temporal")
+    ckpt_dir = Path(checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     model_to_save = model.module if hasattr(model, "module") else model
     torch.save(
@@ -58,22 +82,29 @@ def save_checkpoint(
 
 
 def main():
+    args = parse_args()
+    cfg = load_config(args)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     processor = CLIPSegProcessor.from_pretrained("CIDAS/clipseg-rd64-refined", use_fast=True)
 
-    train_ds = TemporalDataset(TRAIN_LBL_MANIFEST, processor, context_size=CONTEXT_SIZE, strict_mask=True, neg_ratio=NEGATIVE_RATIO)
-    val_ds = TemporalDataset(VAL_LBL_MANIFEST, processor, context_size=CONTEXT_SIZE, strict_mask=False, neg_ratio=0.0)
+    train_ds = TemporalDataset(
+        cfg["train_manifest"], processor, context_size=cfg["context_size"], strict_mask=True, neg_ratio=cfg["negative_ratio"]
+    )
+    val_ds = TemporalDataset(cfg["val_manifest"], processor, context_size=cfg["context_size"], strict_mask=False, neg_ratio=0.0)
 
     train_loader = DataLoader(
         train_ds,
-        batch_size=BATCH_SIZE,
+        batch_size=cfg["batch_size"],
         sampler=make_weighted_sampler(train_ds),
-        num_workers=4,
+        num_workers=cfg["num_workers"],
         pin_memory=True,
     )
-    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(
+        val_ds, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"], pin_memory=True
+    )
 
-    model = CLIPSegTemporalAdapter(context_size=CONTEXT_SIZE).to(device)
+    model = CLIPSegTemporalAdapter(context_size=cfg["context_size"]).to(device)
     optimizer = torch.optim.AdamW(
         [
             {"params": model.base_model.clip.vision_model.parameters(), "lr": 1e-6},
@@ -103,12 +134,13 @@ def main():
     per_organ_val_dice = []
     best_val_dice = 0.0
 
-    for epoch in range(NUM_EPOCHS):
+    checkpoint_dir = cfg["checkpoint_dir"]
+    for epoch in range(cfg["num_epochs"]):
         model.train()
         total_train_loss = 0.0
         trained_steps = 0
 
-        pbar = tqdm(train_loader, desc=f"Train {epoch+1}/{NUM_EPOCHS}")
+        pbar = tqdm(train_loader, desc=f"Train {epoch+1}/{cfg['num_epochs']}")
         for i, batch in enumerate(pbar):
             images = batch["pixel_values"].to(device)
             input_ids = batch["input_ids"].to(device)
@@ -117,7 +149,7 @@ def main():
 
             optimizer.zero_grad()
             logits = model(images, input_ids, attention_mask).float()
-            gate_reg = gate_sparsity_loss(model, LAMBDA_GATE)
+            gate_reg = gate_sparsity_loss(model, cfg["lambda_gate"])
             loss = bce_loss(logits, masks) + dice_loss(logits, masks) + gate_reg
 
             if torch.isnan(loss) or torch.isinf(loss):
@@ -202,6 +234,7 @@ def main():
                 val_dice_values,
                 per_organ_val_dice,
                 "temporal_adapter_no_unlabeled_BEST.pth",
+                checkpoint_dir,
             )
 
         save_checkpoint(
@@ -214,6 +247,7 @@ def main():
             val_dice_values,
             per_organ_val_dice,
             f"temporal_adapter_no_unlabeled_epoch_{epoch+1}.pth",
+            checkpoint_dir,
         )
 
     print(f"Done. Best val dice: {best_val_dice:.4f}")

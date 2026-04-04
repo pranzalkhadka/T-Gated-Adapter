@@ -1,11 +1,13 @@
 """Run 3D evaluation for temporal CLIPSeg checkpoint."""
 
+import argparse
 import json
 import sys
 from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 from monai.metrics.meandice import compute_dice
 from PIL import Image
 from tqdm import tqdm
@@ -17,16 +19,34 @@ from tgated.constants import ORGAN_TEXT_PROMPTS
 from tgated.models import CLIPSegTemporalAdapter
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-TEST_DIR = Path("data/processed/flare_2d/test_labeled")
-CHECKPOINT_PATH = "checkpoints/clipseg_temporal/temporal_adapter_no_unlabeled_BEST.pth"
-CONTEXT_SIZE = 5
 
 organ_keys = list(ORGAN_TEXT_PROMPTS.keys())
 organ_texts = list(ORGAN_TEXT_PROMPTS.values())
 
 
-def load_model(checkpoint_path):
-    model = CLIPSegTemporalAdapter(context_size=CONTEXT_SIZE).to(DEVICE)
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run temporal model inference")
+    parser.add_argument("--config", type=str, default="configs/inference.yaml", help="YAML config path")
+    parser.add_argument("--test-dir", type=str, default=None)
+    parser.add_argument("--checkpoint-path", type=str, default=None)
+    return parser.parse_args()
+
+
+def load_config(args):
+    with open(args.config, "r") as f:
+        cfg = yaml.safe_load(f) or {}
+    cfg.setdefault("test_dir", "data/processed/flare_2d/test_labeled")
+    cfg.setdefault("checkpoint_path", "checkpoints/clipseg_temporal/temporal_adapter_no_unlabeled_BEST.pth")
+    cfg.setdefault("context_size", 5)
+    if args.test_dir is not None:
+        cfg["test_dir"] = args.test_dir
+    if args.checkpoint_path is not None:
+        cfg["checkpoint_path"] = args.checkpoint_path
+    return cfg
+
+
+def load_model(checkpoint_path, context_size):
+    model = CLIPSegTemporalAdapter(context_size=context_size).to(DEVICE)
     checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
     state_dict = checkpoint["model_state_dict"]
     state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
@@ -116,9 +136,11 @@ def run_3d_evaluation(model, processor, test_dir):
 
 
 def main():
+    args = parse_args()
+    cfg = load_config(args)
     processor = CLIPSegProcessor.from_pretrained("CIDAS/clipseg-rd64-refined", use_fast=True)
-    model = load_model(CHECKPOINT_PATH)
-    run_3d_evaluation(model, processor, TEST_DIR)
+    model = load_model(cfg["checkpoint_path"], cfg["context_size"])
+    run_3d_evaluation(model, processor, Path(cfg["test_dir"]))
 
 
 if __name__ == "__main__":
