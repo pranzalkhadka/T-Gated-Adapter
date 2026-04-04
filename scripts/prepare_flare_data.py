@@ -1,7 +1,4 @@
-"""Prepare FLARE 3D volumes into triplanar 2D slices and manifests.
-
-This is the script equivalent of `notebooks/data_prep_flare.ipynb`.
-"""
+"""Prepare FLARE 3D volumes into 2D axial slices/manifests for CLIPSeg training."""
 
 import argparse
 import json
@@ -31,116 +28,14 @@ ORGAN_MAP = {
     13: "l_kidney",
 }
 
-PLANES = [
-    ("axial", lambda vol, i: vol[:, :, i], lambda vol: vol.shape[2]),
-    ("coronal", lambda vol, i: vol[:, i, :], lambda vol: vol.shape[1]),
-    ("sagittal", lambda vol, i: vol[i, :, :], lambda vol: vol.shape[0]),
-]
 
-
-def window_and_normalize(slice_img: np.ndarray, clip_window: tuple[int, int]) -> np.ndarray:
+def window_and_normalize(slice_img, clip_window):
     lo, hi = clip_window
     arr = np.clip(slice_img.astype(np.float32), lo, hi)
     return (((arr - lo) / (hi - lo)) * 255).astype(np.uint8)
 
 
-def process_volume_plane(
-    vol_id: str,
-    img_vol: np.ndarray,
-    mask_vol: np.ndarray | None,
-    plane_name: str,
-    slicer,
-    depth_fn,
-    img_dir: Path,
-    mask_dir: Path,
-    is_labeled: bool,
-    clip_window: tuple[int, int],
-    target_size: tuple[int, int],
-) -> list[dict]:
-    entries = []
-    n_slices = depth_fn(img_vol)
-
-    vol_img_out = img_dir / plane_name / vol_id
-    vol_img_out.mkdir(parents=True, exist_ok=True)
-
-    if is_labeled and mask_vol is not None:
-        vol_mask_out = mask_dir / plane_name / vol_id
-        vol_mask_out.mkdir(parents=True, exist_ok=True)
-    else:
-        vol_mask_out = None
-
-    for idx in range(n_slices):
-        raw_slice = slicer(img_vol, idx)
-        normed = window_and_normalize(raw_slice, clip_window)
-        img_pil = Image.fromarray(normed).resize(target_size, Image.LANCZOS)
-
-        slice_name = f"{idx:03d}.png"
-        img_save_path = vol_img_out / slice_name
-        imageio.imwrite(img_save_path, np.array(img_pil))
-        relative_img = f"images/{plane_name}/{vol_id}/{slice_name}"
-
-        if is_labeled and mask_vol is not None:
-            slice_mask = slicer(mask_vol, idx).astype(np.int32)
-            present_labels = np.unique(slice_mask)
-            present_labels = present_labels[present_labels != 0]
-
-            if len(present_labels) == 0:
-                entries.append(
-                    {
-                        "vol_id": vol_id,
-                        "plane": plane_name,
-                        "slice_idx": idx,
-                        "image": relative_img,
-                        "mask": None,
-                        "prompt": None,
-                        "labeled": True,
-                    }
-                )
-            else:
-                for lab in present_labels:
-                    organ_name = ORGAN_MAP.get(int(lab), f"label{lab}")
-                    binary_mask = (slice_mask == lab).astype(np.uint8) * 255
-                    mask_pil = Image.fromarray(binary_mask).resize(target_size, Image.NEAREST)
-
-                    mask_name = f"{idx:03d}_{organ_name}.png"
-                    imageio.imwrite(vol_mask_out / mask_name, np.array(mask_pil))
-
-                    entries.append(
-                        {
-                            "vol_id": vol_id,
-                            "plane": plane_name,
-                            "slice_idx": idx,
-                            "image": relative_img,
-                            "mask": f"masks/{plane_name}/{vol_id}/{mask_name}",
-                            "prompt": organ_name,
-                            "labeled": True,
-                        }
-                    )
-        else:
-            entries.append(
-                {
-                    "vol_id": vol_id,
-                    "plane": plane_name,
-                    "slice_idx": idx,
-                    "image": relative_img,
-                    "mask": None,
-                    "prompt": None,
-                    "labeled": False,
-                }
-            )
-
-    return entries
-
-
-def process_set(
-    volumes: list[Path],
-    split_name: str,
-    out_root: Path,
-    lbl_path: Path,
-    clip_window: tuple[int, int],
-    target_size: tuple[int, int],
-    is_labeled: bool = True,
-) -> None:
+def process_set(volumes, split_name, out_root, lbl_path, clip_window, target_size, is_labeled=True):
     print(f"\nProcessing {split_name} ({len(volumes)} volumes)...")
     split_dir = out_root / split_name
     img_dir = split_dir / "images"
@@ -149,63 +44,100 @@ def process_set(
     if is_labeled:
         mask_dir.mkdir(parents=True, exist_ok=True)
 
-    all_entries = []
+    manifest = []
 
     for vol_path in tqdm(volumes):
         vol_id = vol_path.name.replace("_0000.nii.gz", "").replace("_0000.nii", "")
+        vol_img_out = img_dir / vol_id
+        vol_img_out.mkdir(parents=True, exist_ok=True)
+
         img_vol = nib.load(str(vol_path)).get_fdata()
 
         mask_vol = None
         if is_labeled:
-            m_path = lbl_path / (vol_id + ".nii")
+            m_path = lbl_path / f"{vol_id}.nii"
             if m_path.exists():
                 mask_vol = nib.load(str(m_path)).get_fdata()
 
-        for plane_name, slicer, depth_fn in PLANES:
-            entries = process_volume_plane(
-                vol_id,
-                img_vol,
-                mask_vol,
-                plane_name,
-                slicer,
-                depth_fn,
-                img_dir,
-                mask_dir,
-                is_labeled,
-                clip_window,
-                target_size,
-            )
-            all_entries.extend(entries)
+        depth = img_vol.shape[-1]
 
-    manifest_path = split_dir / "manifest.jsonl"
-    with manifest_path.open("w") as f:
-        for entry in all_entries:
+        for z in range(depth):
+            slice_img = window_and_normalize(img_vol[:, :, z], clip_window)
+            img_pil = Image.fromarray(slice_img).resize(target_size, Image.LANCZOS)
+
+            slice_name = f"z{z:03d}.png"
+            imageio.imwrite(vol_img_out / slice_name, np.array(img_pil))
+            relative_img_path = f"images/{vol_id}/{slice_name}"
+
+            if is_labeled and mask_vol is not None:
+                slice_mask = mask_vol[:, :, z].astype(np.int32)
+                present_labels = np.unique(slice_mask)
+                present_labels = present_labels[present_labels != 0]
+
+                vol_mask_out = mask_dir / vol_id
+                vol_mask_out.mkdir(parents=True, exist_ok=True)
+
+                if len(present_labels) == 0:
+                    manifest.append(
+                        {
+                            "vol_id": vol_id,
+                            "slice_idx": z,
+                            "image": relative_img_path,
+                            "mask": None,
+                            "prompt": None,
+                            "labeled": True,
+                        }
+                    )
+                else:
+                    for lab in present_labels:
+                        organ_name = ORGAN_MAP.get(int(lab), f"label{lab}")
+                        binary_mask = (slice_mask == lab).astype(np.uint8) * 255
+                        mask_pil = Image.fromarray(binary_mask).resize(target_size, Image.NEAREST)
+
+                        mask_name = f"z{z:03d}_{organ_name}.png"
+                        imageio.imwrite(vol_mask_out / mask_name, np.array(mask_pil))
+
+                        manifest.append(
+                            {
+                                "vol_id": vol_id,
+                                "slice_idx": z,
+                                "image": relative_img_path,
+                                "mask": f"masks/{vol_id}/{mask_name}",
+                                "prompt": organ_name,
+                                "labeled": True,
+                            }
+                        )
+            else:
+                manifest.append(
+                    {
+                        "vol_id": vol_id,
+                        "slice_idx": z,
+                        "image": relative_img_path,
+                        "mask": None,
+                        "prompt": None,
+                        "labeled": False,
+                    }
+                )
+
+    with open(split_dir / "manifest.jsonl", "w") as f:
+        for entry in manifest:
             f.write(json.dumps(entry) + "\n")
 
-    for plane_name, _, _ in PLANES:
-        plane_entries = [e for e in all_entries if e["plane"] == plane_name]
-        plane_manifest = split_dir / f"manifest_{plane_name}.jsonl"
-        with plane_manifest.open("w") as f:
-            for entry in plane_entries:
-                f.write(json.dumps(entry) + "\n")
-        print(f"  {plane_name:>8}: {len(plane_entries):>7} entries")
 
-    print(f"  {'TOTAL':>8}: {len(all_entries):>7} entries")
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare FLARE triplanar 2D dataset")
+def parse_args():
+    parser = argparse.ArgumentParser(description="Prepare FLARE axial 2D dataset")
     parser.add_argument("--config", type=str, default="configs/data_prep_flare.yaml", help="YAML config path")
-    parser.add_argument("--img-path", type=Path, default=None)
-    parser.add_argument("--lbl-path", type=Path, default=None)
-    parser.add_argument("--out-root", type=Path, default=None)
+    parser.add_argument("--img-path", type=str, default=None)
+    parser.add_argument("--lbl-path", type=str, default=None)
+    parser.add_argument("--out-root", type=str, default=None)
     return parser.parse_args()
 
 
-def main() -> None:
+def main():
     args = parse_args()
     with open(args.config, "r") as f:
         cfg = yaml.safe_load(f) or {}
+
     cfg.setdefault("img_path", "data/raw/flare/images")
     cfg.setdefault("lbl_path", "data/raw/flare/labels")
     cfg.setdefault("out_root", "data/processed/flare_2d")
@@ -216,57 +148,51 @@ def main() -> None:
     cfg.setdefault("train_count", 30)
     cfg.setdefault("val_count", 10)
     cfg.setdefault("test_count", 10)
+
     if args.img_path is not None:
-        cfg["img_path"] = str(args.img_path)
+        cfg["img_path"] = args.img_path
     if args.lbl_path is not None:
-        cfg["lbl_path"] = str(args.lbl_path)
+        cfg["lbl_path"] = args.lbl_path
     if args.out_root is not None:
-        cfg["out_root"] = str(args.out_root)
+        cfg["out_root"] = args.out_root
 
     img_path = Path(cfg["img_path"])
     lbl_path = Path(cfg["lbl_path"])
     out_root = Path(cfg["out_root"])
+
     random.seed(cfg["seed"])
-
-    volumes = sorted(list(img_path.glob("*.nii*")))
-    random.shuffle(volumes)
-
-    n_train = cfg["train_count"]
-    n_val = cfg["val_count"]
-    n_test = cfg["test_count"]
-
-    clip_window = (cfg["clip_min"], cfg["clip_max"])
-    target_size = tuple(cfg["target_size"])
+    labeled_vols = sorted(list(img_path.glob("*.nii*")))
+    random.shuffle(labeled_vols)
 
     process_set(
-        volumes[:n_train],
+        labeled_vols[: cfg["train_count"]],
         "train_labeled",
         out_root,
         lbl_path,
-        clip_window,
-        target_size,
+        (cfg["clip_min"], cfg["clip_max"]),
+        tuple(cfg["target_size"]),
         is_labeled=True,
     )
     process_set(
-        volumes[n_train : n_train + n_val],
+        labeled_vols[cfg["train_count"] : cfg["train_count"] + cfg["val_count"]],
         "val_labeled",
         out_root,
         lbl_path,
-        clip_window,
-        target_size,
+        (cfg["clip_min"], cfg["clip_max"]),
+        tuple(cfg["target_size"]),
         is_labeled=True,
     )
     process_set(
-        volumes[n_train + n_val : n_train + n_val + n_test],
+        labeled_vols[cfg["train_count"] + cfg["val_count"] : cfg["train_count"] + cfg["val_count"] + cfg["test_count"]],
         "test_labeled",
         out_root,
         lbl_path,
-        clip_window,
-        target_size,
+        (cfg["clip_min"], cfg["clip_max"]),
+        tuple(cfg["target_size"]),
         is_labeled=True,
     )
 
-    print("\nTriplanar data preparation complete.")
+    print("\nData Preparation Complete at 352x352 resolution!")
 
 
 if __name__ == "__main__":

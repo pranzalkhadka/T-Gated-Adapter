@@ -1,8 +1,8 @@
 train_manifest: data/processed/flare_2d/train_labeled/manifest.jsonl
 val_manifest: data/processed/flare_2d/val_labeled/manifest.jsonl
 checkpoint_dir: checkpoints/clipseg_temporal
-batch_size: 6
+batch_size: 4
 context_size: 5
-num_epochs: 5
+num_epochs: 25
 lambda_gate: 0.001
 negative_ratio: 0.10

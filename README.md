@@ -83,12 +83,40 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Data Preparation
+
+```bash
+python scripts/prepare_flare_data.py \
+  --img-path /path/to/3d/images \
+  --lbl-path /path/to/3d/labels \
+  --out-root /path/to/output_2d
+```
+
+## Training
+
+```bash
+# 3D DynUNet
+python scripts/train_dyunet.py \
+  --img-path /path/to/3d/images \
+  --lbl-path /path/to/3d/labels
+
+# 2D CLIPSeg baseline
+python scripts/train_clipseg_baseline.py \
+  --train-manifest /path/to/train_labeled/manifest.jsonl \
+  --val-manifest /path/to/val_labeled/manifest.jsonl
+
+# 2D CLIPSeg temporal
+python scripts/train_clipseg_temporal.py \
+  --train-manifest /path/to/train_labeled/manifest.jsonl \
+  --val-manifest /path/to/val_labeled/manifest.jsonl
+```
+
 ## Acknowledgements
 
 We are grateful to the authors of the following repositories and datasets for making their work publicly available:
 
-1. [CLIP](https://github.com/openai/CLIP)  
-2. [CLIPSeg](https://github.com/timojl/clipseg)   
-3. [Fast and Low-resource semi-supervised Abdominal Organ Segmentation in CT ](https://flare22.grand-challenge.org/) 
-4. [Multi-Atlas Labeling Beyond the Cranial Vault - Workshop and Challenge](https://www.synapse.org/#!Synapse:syn3193805/wiki/217789)
-5. [Multi-Modality Abdominal Multi-Organ Segmentation Challenge 2022](https://amos22.grand-challenge.org/)
+1. [Contrastive Language-Image Pretraining (CLIP)](https://github.com/openai/CLIP)  
+2. [Image Segmentation Using Text and Image Prompts (CLIPSeg)](https://github.com/timojl/clipseg)   
+3. [Fast and Low-resource semi-supervised Abdominal Organ Segmentation in CT (FLARE22)](https://flare22.grand-challenge.org/) 
+4. [Multi-Atlas Labeling Beyond the Cranial Vault - Workshop and Challenge (BTCV)](https://www.synapse.org/#!Synapse:syn3193805/wiki/217789)
+5. [Multi-Modality Abdominal Multi-Organ Segmentation Challenge 2022 (AMOS22)](https://amos22.grand-challenge.org/)

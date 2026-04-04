@@ -24,7 +24,6 @@ from tgated.models import CLIPSegBaseline
 def parse_args():
     parser = argparse.ArgumentParser(description="Train CLIPSeg baseline")
     parser.add_argument("--config", type=str, default="configs/train_clipseg_baseline.yaml", help="YAML config path")
-    parser.add_argument("--data-root", type=str, default=None, help="Path to prepared 2D data root containing train_labeled/val_labeled")
     parser.add_argument("--train-manifest", type=str, default=None, help="Optional explicit train manifest path")
     parser.add_argument("--val-manifest", type=str, default=None, help="Optional explicit val manifest path")
     parser.add_argument("--checkpoint-dir", type=str, default=None)
@@ -47,25 +46,6 @@ def load_config(args):
     if args.val_manifest is not None:
         cfg["val_manifest"] = args.val_manifest
 
-    if args.data_root is not None and (args.train_manifest is None or args.val_manifest is None):
-        data_root = Path(args.data_root)
-        # Case A: data_root points to parent dir containing train_labeled/ and val_labeled/
-        default_train = data_root / "train_labeled" / "manifest.jsonl"
-        default_val = data_root / "val_labeled" / "manifest.jsonl"
-        # Case B: data_root points directly to train_labeled/
-        direct_train = data_root / "manifest.jsonl"
-        sibling_val = data_root.parent / "val_labeled" / "manifest.jsonl"
-
-        if args.train_manifest is None:
-            if default_train.exists():
-                cfg["train_manifest"] = str(default_train)
-            elif direct_train.exists():
-                cfg["train_manifest"] = str(direct_train)
-        if args.val_manifest is None:
-            if default_val.exists():
-                cfg["val_manifest"] = str(default_val)
-            elif sibling_val.exists():
-                cfg["val_manifest"] = str(sibling_val)
     if args.checkpoint_dir is not None:
         cfg["checkpoint_dir"] = args.checkpoint_dir
     return cfg
