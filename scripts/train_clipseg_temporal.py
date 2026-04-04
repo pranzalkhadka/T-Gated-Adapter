@@ -25,6 +25,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train temporal CLIPSeg adapter")
     parser.add_argument("--config", type=str, default="configs/train_clipseg_temporal.yaml", help="YAML config path")
     parser.add_argument("--data-root", type=str, default=None, help="Path to prepared 2D data root containing train_labeled/val_labeled")
+    parser.add_argument("--train-manifest", type=str, default=None, help="Optional explicit train manifest path")
+    parser.add_argument("--val-manifest", type=str, default=None, help="Optional explicit val manifest path")
     parser.add_argument("--checkpoint-dir", type=str, default=None)
     return parser.parse_args()
 
@@ -41,10 +43,28 @@ def load_config(args):
     cfg.setdefault("negative_ratio", NEGATIVE_RATIO)
     cfg.setdefault("checkpoint_dir", "checkpoints/clipseg_temporal")
 
-    if args.data_root is not None:
+    if args.train_manifest is not None:
+        cfg["train_manifest"] = args.train_manifest
+    if args.val_manifest is not None:
+        cfg["val_manifest"] = args.val_manifest
+
+    if args.data_root is not None and (args.train_manifest is None or args.val_manifest is None):
         data_root = Path(args.data_root)
-        cfg["train_manifest"] = str(data_root / "train_labeled" / "manifest.jsonl")
-        cfg["val_manifest"] = str(data_root / "val_labeled" / "manifest.jsonl")
+        default_train = data_root / "train_labeled" / "manifest.jsonl"
+        default_val = data_root / "val_labeled" / "manifest.jsonl"
+        direct_train = data_root / "manifest.jsonl"
+        sibling_val = data_root.parent / "val_labeled" / "manifest.jsonl"
+
+        if args.train_manifest is None:
+            if default_train.exists():
+                cfg["train_manifest"] = str(default_train)
+            elif direct_train.exists():
+                cfg["train_manifest"] = str(direct_train)
+        if args.val_manifest is None:
+            if default_val.exists():
+                cfg["val_manifest"] = str(default_val)
+            elif sibling_val.exists():
+                cfg["val_manifest"] = str(sibling_val)
     if args.checkpoint_dir is not None:
         cfg["checkpoint_dir"] = args.checkpoint_dir
     return cfg
