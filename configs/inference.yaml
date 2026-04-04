@@ -1,3 +1,0 @@
-test_dir: data/processed/flare_2d/test_labeled
-checkpoint_path: checkpoints/clipseg_temporal/temporal_adapter_no_unlabeled_BEST.pth
-context_size: 5
