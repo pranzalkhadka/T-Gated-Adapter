@@ -1,5 +1,3 @@
-"""Prepare FLARE 3D volumes into 2D axial slices/manifests for CLIPSeg training."""
-
 import argparse
 import json
 import random
@@ -192,7 +190,7 @@ def main():
         is_labeled=True,
     )
 
-    print("\nData Preparation Complete at 352x352 resolution!")
+    print("\nData Preparation Complete!")
 
 
 if __name__ == "__main__":

@@ -5,8 +5,29 @@
 </p> -->
 
 <p align="center">
-  <b><font size="3">CVPRW PHAROS-AIF-MIH</font></b>
+  <b><font size="3">CVPRW 2026 PHAROS-AIF-MIH</font></b>
 </p>
+
+<p align="center">
+  <a href="https://arxiv.org/abs/2604.08167" target="_blank">
+    <img alt="arXiv" src="https://img.shields.io/badge/arXiv-2602.20423-B31B1B?logo=arxiv&logoColor=white" height="25"/>
+  </a>
+  <a href="#citation">
+    <img alt="Citation" src="https://img.shields.io/badge/Citation-BibTeX-6C63FF?logo=bookstack&logoColor=white" height="25"/>
+  </a>
+</p>
+
+<!-- <a href="https://arxiv.org/abs/2602.20423" target="_blank"><img alt="arXiv" src="https://img.shields.io/badge/arXiv-2602.20423-B31B1B?logo=arxiv&logoColor=white" height="25"/></a>
+
+<a href="#citation"><img alt="Citation" src="https://img.shields.io/badge/Citation-BibTeX-6C63FF?logo=bookstack&logoColor=white" height="25"/></a> -->
+
+<!-- <p align="center">
+  <b><font size="3">
+    <a href="https://pharos-workshop.github.io/">CVPRW PHAROS-AIF-MIH</a>
+    &nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;
+    <a href="https://arxiv.org/abs/2604.08167">arXiv</a>
+  </font></b>
+</p> -->
 
 <!-- <p align="center">
   <a href="paper/T_Gated_Adapter.pdf">Paper</a>
@@ -109,6 +130,20 @@ python scripts/train_clipseg_baseline.py \
 python scripts/train_clipseg_temporal.py \
   --train-manifest /path/to/train_labeled/manifest.jsonl \
   --val-manifest /path/to/val_labeled/manifest.jsonl
+```
+
+## Citation
+
+If you find this work useful, please cite:
+
+```bibtex
+@article{khadka2026tgated,
+  title={T-Gated Adapter: A Lightweight Temporal Adapter for Vision-Language Medical Segmentation},
+  author={Khadka, Pranjal},
+  journal={arXiv preprint arXiv:2604.08167},
+  year={2026},
+  note={Accepted at the PHAROS-AIF-MIH Workshop at CVPR 2026}
+}
 ```
 
 ## Acknowledgements

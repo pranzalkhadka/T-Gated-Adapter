@@ -1,7 +1,3 @@
-"""Auto-converted from the original notebook for reproducibility.
-This script intentionally keeps the paper training logic close to notebook behavior.
-"""
-
 # %%
 
 # %%
@@ -88,7 +84,6 @@ VAL_INTERVAL = _cfg["val_interval"]
 NUM_WORKERS = _cfg["num_workers"]
 HU_MIN, HU_MAX = _cfg["hu_min"], _cfg["hu_max"]
 
-# Same organ map as CLIPSeg — FLARE label indices
 LABEL_MAP = {
     1: "liver",     2: "r_kidney",   3: "spleen",
     4: "pancreas",  5: "aorta",      6: "ivc",
@@ -100,7 +95,6 @@ LABEL_MAP = {
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# %%
 random.seed(_cfg["seed"])
 labeled_vols = sorted(list(IMG_PATH.glob("*.nii*")))
 random.shuffle(labeled_vols)
@@ -143,39 +137,34 @@ print(f"Train dicts: {len(train_dicts)}")
 print(f"Val dicts  : {len(val_dicts)}")
 print(f"Test dicts : {len(test_dicts)}")
 
-# %%
 base_transforms = [
     LoadImaged(keys=["image", "label"]),
     EnsureChannelFirstd(keys=["image", "label"]),
-    # Resample to isotropic 1.5mm spacing — standard for abdominal CT
+ 
     Spacingd(
         keys=["image", "label"],
         pixdim=(1.5, 1.5, 1.5),
         mode=("bilinear", "nearest"),
     ),
-    # Same HU window as CLIPSeg training
     ScaleIntensityRanged(
         keys=["image"],
         a_min=HU_MIN, a_max=HU_MAX,
         b_min=0.0,    b_max=1.0,
         clip=True,
     ),
-    # Crop to foreground (removes empty air around body)
     CropForegroundd(keys=["image", "label"], source_key="image"),
     EnsureTyped(keys=["image", "label"]),
 ]
 
 train_transforms = Compose(base_transforms + [
-    # Random 96^3 patches — positive/negative ratio 1:1
     RandCropByPosNegLabeld(
         keys=["image", "label"],
         label_key="label",
         spatial_size=PATCH_SIZE,
         pos=1, neg=1,
-        num_samples=2,      # 2 patches per volume per iteration
+        num_samples=2,      
         image_key="image",
     ),
-    # Augmentation — same philosophy as CLIPSeg (light, stable)
     RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0),
     RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=1),
     RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=2),
@@ -198,7 +187,7 @@ val_loader   = DataLoader(
     val_ds, batch_size=1, shuffle=False,
     num_workers=NUM_WORKERS, pin_memory=True)
 
-# %%
+
 kernels  = [[3,3,3], [3,3,3], [3,3,3], [3,3,3], [3,3,3]]
 strides  = [[1,1,1], [2,2,2], [2,2,2], [2,2,2], [2,2,2]]
 
@@ -208,34 +197,33 @@ model = DynUNet(
     out_channels=NUM_CLASSES,
     kernel_size=kernels,
     strides=strides,
-    upsample_kernel_size=strides[1:],   # matches decoder strides
-    norm_name="instance",               # instance norm standard for medical
-    deep_supervision=True,              # auxiliary losses at each decoder level
-    deep_supr_num=2,                    # 2 auxiliary outputs
+    upsample_kernel_size=strides[1:],   
+    norm_name="instance",              
+    deep_supervision=True,             
+    deep_supr_num=2,                    
 ).to(device)
 
 print(f"DynUNet parameters: {sum(p.numel() for p in model.parameters()):,}")
 
 # %%
 loss_fn = DiceCELoss(
-    to_onehot_y=True,        # converts integer labels to one-hot
-    softmax=True,            # apply softmax to logits
-    include_background=False, # don't penalize background — standard practice
+    to_onehot_y=True,      
+    softmax=True,            
+    include_background=False, 
 )
 
 optimizer = torch.optim.AdamW(
     model.parameters(),
-    lr=1e-3,            # DynUNet uses higher LR than CLIPSeg fine-tuning
+    lr=1e-3,           
     weight_decay=1e-5,
 )
 
 scheduler = CosineAnnealingWarmRestarts(
     optimizer, T_0=50, T_mult=1, eta_min=1e-6)
 
-# Dice metric — one channel per organ, exclude background
 dice_metric = DiceMetric(
     include_background=False,
-    reduction="mean_batch",  # per-class mean across batch
+    reduction="mean_batch",  
     get_not_nans=True,
 )
 
@@ -260,7 +248,7 @@ def save_checkpoint(epoch, model, optimizer, scheduler, scaler,
 
 def model_inference(x):
     out = model(x)
-    return out[:, 0] if out.ndim == 6 else out  # always returns 5D
+    return out[:, 0] if out.ndim == 6 else out  
 
 train_losses     = []
 val_dices        = []
@@ -274,8 +262,8 @@ for epoch in range(NUM_EPOCHS):
 
     pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{NUM_EPOCHS}")
     for batch in pbar:
-        images = batch["image"].to(device)   # (B, 1, H, W, D)
-        labels = batch["label"].to(device)   # (B, 1, H, W, D) integer
+        images = batch["image"].to(device)   
+        labels = batch["label"].to(device)  
 
         optimizer.zero_grad()
 
@@ -314,7 +302,6 @@ for epoch in range(NUM_EPOCHS):
     avg_loss = total_loss / max(n_batches, 1)
     train_losses.append(avg_loss)
 
-    # ── Validation every VAL_INTERVAL epochs ──────────────────────────
     if (epoch + 1) % VAL_INTERVAL == 0:
         model.eval()
         dice_metric.reset()
@@ -325,8 +312,6 @@ for epoch in range(NUM_EPOCHS):
                 images = batch["image"].to(device)
                 labels = batch["label"].to(device)
 
-                # Sliding window inference — handles full volumes
-                # that don't fit in GPU memory as a single patch
                 outputs = sliding_window_inference(
                     inputs=images,
                     roi_size=PATCH_SIZE,
@@ -335,24 +320,20 @@ for epoch in range(NUM_EPOCHS):
                     overlap=0.5,
                 )
 
-                # Take only the full-res output if deep supervision
                 if isinstance(outputs, (list, tuple)):
                     outputs = outputs[0]
 
-                # Convert to one-hot for metric
                 preds_list  = [post_pred(i)  for i in decollate_batch(outputs)]
                 labels_list = [post_label(i) for i in decollate_batch(labels)]
                 dice_metric(y_pred=preds_list, y=labels_list)
 
-        # Get per-class Dice scores
-        # Shape: (NUM_CLASSES-1,) — background excluded
+   
         per_class_dice, not_nans = dice_metric.aggregate()
         per_class_dice = per_class_dice.cpu().numpy()
 
-        # Map back to organ names (index 0 = label 1 = liver, etc.)
         epoch_organ_dice = {}
         for label_idx, organ_name in LABEL_MAP.items():
-            class_idx = label_idx - 1  # offset because background excluded
+            class_idx = label_idx - 1  
             if class_idx < len(per_class_dice):
                 epoch_organ_dice[organ_name] = float(per_class_dice[class_idx])
 

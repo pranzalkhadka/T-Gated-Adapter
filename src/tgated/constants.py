@@ -1,5 +1,3 @@
-"""Shared constants for FLARE experiments."""
-
 ORGAN_TEXT_PROMPTS = {
     "liver": "liver",
     "spleen": "spleen",

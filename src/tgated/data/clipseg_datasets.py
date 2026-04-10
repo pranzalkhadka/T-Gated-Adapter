@@ -1,5 +1,3 @@
-"""Dataset utilities for CLIPSeg baseline and temporal training."""
-
 import json
 import random
 from collections import defaultdict

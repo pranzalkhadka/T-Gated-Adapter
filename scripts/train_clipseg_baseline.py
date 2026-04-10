@@ -1,5 +1,3 @@
-"""Train baseline CLIPSeg using modular src implementation."""
-
 import argparse
 import sys
 from collections import defaultdict

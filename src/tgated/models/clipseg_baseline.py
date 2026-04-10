@@ -1,5 +1,3 @@
-"""Baseline CLIPSeg model wrapper."""
-
 import torch.nn as nn
 from transformers import CLIPSegForImageSegmentation
 

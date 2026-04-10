@@ -1,5 +1,3 @@
-"""Train temporal CLIPSeg adapter using modular src implementation."""
-
 import argparse
 import gc
 import sys
@@ -22,7 +20,7 @@ from tgated.data import TemporalDataset, make_weighted_sampler
 from tgated.models import CLIPSegTemporalAdapter, gate_sparsity_loss, get_raw_model
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train temporal CLIPSeg adapter")
+    parser = argparse.ArgumentParser(description="Train temporal Adapter")
     parser.add_argument("--config", type=str, default="configs/train_clipseg_temporal.yaml", help="YAML config path")
     parser.add_argument("--train-manifest", type=str, default=None, help="Optional explicit train manifest path")
     parser.add_argument("--val-manifest", type=str, default=None, help="Optional explicit val manifest path")
@@ -235,7 +233,7 @@ def main():
                 val_loss_values,
                 val_dice_values,
                 per_organ_val_dice,
-                "temporal_adapter_no_unlabeled_BEST.pth",
+                "temporal_adapter_BEST.pth",
                 checkpoint_dir,
             )
 
@@ -248,7 +246,7 @@ def main():
             val_loss_values,
             val_dice_values,
             per_organ_val_dice,
-            f"temporal_adapter_no_unlabeled_epoch_{epoch+1}.pth",
+            f"temporal_adapter_epoch_{epoch+1}.pth",
             checkpoint_dir,
         )
 
